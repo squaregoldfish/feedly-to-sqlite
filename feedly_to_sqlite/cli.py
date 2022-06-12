@@ -5,6 +5,7 @@ import pathlib
 import json
 import sqlite_utils
 import requests
+from urllib.parse import quote_plus
 from feedly_to_sqlite import utils
 
 FEEDLY_API_URL = "https://cloud.feedly.com"
@@ -62,6 +63,16 @@ FEED_KEYS = [
     "state",
     "description",
 ]
+BOARD_KEYS = ["label", "id"]
+ITEM_ROOT_KEYS = ["id", "title", "published", "crawled", "unread", "readTime", "actionTimestamp"]
+ITEM_SUB_KEYS = {
+    "origin": ["title"],
+    "content": ["content"]
+}
+ITEM_SUB_ARRAY_KEYS = {
+    "canonical": ["href", "type"],
+    "alternate": ["href", "type"],
+}
 
 
 @cli.command()
@@ -105,6 +116,43 @@ def subscriptions(db_path, auth):
         for f in feeds:
             feed_data = {k: f.get(k) for k in FEED_KEYS}
             db["collections"].update(coll_id).m2m(db.table("feeds", pk="id"), feed_data)
+
+    click.echo("Downloading boards")
+    r = requests.get(
+        FEEDLY_API_URL + "/v3/boards",
+        headers={"Authorization": "Bearer {}".format(token)},
+    )
+    r.raise_for_status()
+
+    boards = r.json()
+    for board in boards:
+        board_id = board["id"]
+        board_data = {k: board.get(k) for k in BOARD_KEYS}
+        db["boards"].upsert(board_data, pk="id")
+
+        # Get the contents of each board
+        r = requests.get(
+            FEEDLY_API_URL + "/v3/streams/contents?streamId=" + quote_plus(board_id) + "&unreadOnly=false&count=500",
+            headers={"Authorization": "Bearer {}".format(token)},
+        )
+        r.raise_for_status()
+
+        contents = r.json()
+        for item in contents["items"]:
+            item_data = {k: item.get(k) for k in ITEM_ROOT_KEYS}
+            for parent in ITEM_SUB_KEYS:
+                if parent in item:
+                    parent_dict = item.get(parent)
+                    sub_values = {parent + "_" + k: parent_dict.get(k) for k in ITEM_SUB_KEYS[parent]}
+                    item_data.update(sub_values)
+
+            for parent in ITEM_SUB_ARRAY_KEYS:
+                if parent in item:
+                    parent_dict = item.get(parent)[0]
+                    sub_values = {parent + "_" + k: parent_dict.get(k) for k in ITEM_SUB_ARRAY_KEYS[parent]}
+                    item_data.update(sub_values)
+
+            db["boards"].update(board_id).m2m(db.table("items", pk="id"), item_data)
 
 
 if __name__ == "__main__":

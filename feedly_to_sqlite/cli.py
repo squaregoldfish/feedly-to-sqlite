@@ -70,7 +70,6 @@ ITEM_SUB_KEYS = {
     "content": ["content"]
 }
 ITEM_SUB_ARRAY_KEYS = {
-    "canonical": ["href", "type"],
     "alternate": ["href", "type"],
 }
 
@@ -132,7 +131,7 @@ def subscriptions(db_path, auth):
 
         # Get the contents of each board
         r = requests.get(
-            FEEDLY_API_URL + "/v3/streams/contents?streamId=" + quote_plus(board_id) + "&unreadOnly=false&count=500",
+            FEEDLY_API_URL + "/v3/streams/contents?streamId=" + quote_plus(board_id) + "&unreadOnly=false&ranked=oldest&count=500",
             headers={"Authorization": "Bearer {}".format(token)},
         )
         r.raise_for_status()
